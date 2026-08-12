@@ -15,7 +15,7 @@ concurrency:
 jobs:
   test262:
     name: test262 (shard ${{ matrix.shard }}/10)
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -33,9 +33,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - name: verify Apple Clang toolchain
+      - name: verify C toolchain
         run: |
-          test "$(uname -s)" = Darwin
+          test "$(uname -s)" = Linux
           test -x /usr/bin/cc
           /usr/bin/cc --version
       - name: select test262 shard
@@ -72,7 +72,7 @@ jobs:
       - name: run test262
         env:
           SHARD: ${{ matrix.shard }}
-          # Match the website's Test262 setup: Apple Clang, never TCC.
+          # Exercise the harness's C compiler fallback, never TCC.
           CC: /usr/bin/cc
           PORFFOR_TEST262_NO_TCC: '1'
         run: |
@@ -138,13 +138,29 @@ jobs:
             { shards: new Set(), total: 0, passes: 0, fails: 0, runtimeErrors: 0, nativeErrors: 0, compileErrors: 0, timeouts: 0 }
           );
           if (totals.shards.size !== 10) throw new Error('not every shard reported a result');
+          const counted = categories.reduce((sum, category) => sum + totals[category], 0);
+          if (counted !== totals.total)
+            throw new Error(`expected result categories to total ${totals.total}, got ${counted}`);
           const count = value => value.toLocaleString('en-US');
+          const percentage = value => `${((value / totals.total) * 100).toFixed(2)}%`;
           const line = `🧪 Total: ${count(totals.total)} | 🤠 Passed: ${count(totals.passes)} | ❌ Failed: ${count(totals.fails)} | 💀 Runtime errors: ${count(totals.runtimeErrors)} | 🏗️ Native errors: ${count(totals.nativeErrors)} | 💥 Compile errors: ${count(totals.compileErrors)} | ⏰ Timeouts: ${count(totals.timeouts)}`;
+          const table = [
+            '| Metric | Count | Percentage |',
+            '|---|---:|---:|',
+            `| 🧪 Total | ${count(totals.total)} | 100.00% |`,
+            `| 🤠 Passed | ${count(totals.passes)} | ${percentage(totals.passes)} |`,
+            `| ❌ Failed | ${count(totals.fails)} | ${percentage(totals.fails)} |`,
+            `| 💀 Runtime errors | ${count(totals.runtimeErrors)} | ${percentage(totals.runtimeErrors)} |`,
+            `| 🏗️ Native errors | ${count(totals.nativeErrors)} | ${percentage(totals.nativeErrors)} |`,
+            `| 💥 Compile errors | ${count(totals.compileErrors)} | ${percentage(totals.compileErrors)} |`,
+            `| ⏰ Timeouts | ${count(totals.timeouts)} | ${percentage(totals.timeouts)} |`
+          ].join('\n');
           console.log(`Test262: ${line}`);
+          console.log(table);
           if (totals.total !== 53404) throw new Error(`expected 53404 tests, got ${totals.total}`);
           // Baseline measured for the pinned suite in CI.
           if (totals.passes < 4658) throw new Error(`expected at least 4658 passes, got ${totals.passes}`);
-          fs.writeFileSync('test262-summary.json', JSON.stringify({ ...totals, shards: undefined, line }));
+          fs.writeFileSync('test262-summary.json', JSON.stringify({ ...totals, shards: undefined, line, table }));
           EOF
       - name: comment test262 result on pull request
         if: github.event.pull_request.head.repo.full_name == github.repository
@@ -154,14 +170,12 @@ jobs:
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs';
-          const { line } = JSON.parse(fs.readFileSync('test262-summary.json', 'utf8'));
+          const { table } = JSON.parse(fs.readFileSync('test262-summary.json', 'utf8'));
           const body = [
             '<!-- porffor-test262-summary -->',
             '## Test262',
             '',
-            '```',
-            line,
-            '```'
+            table
           ].join('\n');
           fs.writeFileSync('test262-comment.json', JSON.stringify({ body }));
           EOF
