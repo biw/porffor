@@ -32,7 +32,8 @@ const select = () => {
 };
 
 if (process.argv.includes('--list')) {
-  console.log(packages.map(test => test.name).join('\n'));
+  const names = packages.map(test => test.name);
+  console.log(process.argv.includes('--json') ? JSON.stringify(names) : names.join('\n'));
   process.exit(0);
 }
 

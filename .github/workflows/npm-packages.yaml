@@ -7,7 +7,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -15,44 +14,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  compatibility:
-    name: npm package compatibility
+  discover:
+    name: discover npm packages
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      packages: ${{ steps.packages.outputs.packages }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check worker availability
-        id: worker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # Pull requests run against the head branch; github.ref is a
-          # synthetic merge ref and cannot be used for workflow dispatch.
-          WORKER_REF: ${{ github.head_ref || github.ref_name }}
-        run: |
-          if gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/npm-package-worker.yaml?ref=$WORKER_REF" >/dev/null; then
-            echo 'available=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'available=false' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-node@v4
+      - id: packages
+        run: echo "packages=$(node test/npm-packages.mjs --list --json)" >> "$GITHUB_OUTPUT"
+
+  # POC: GitHub does not register workflow_dispatch targets until they exist
+  # on the default branch. Calling this reusable workflow from the PR branch
+  # proves that every package runs on a separate machine before that merge.
+  worker:
+    name: "npm: ${{ matrix.package }}"
+    needs: discover
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        package: ${{ fromJSON(needs.discover.outputs.packages) }}
+    uses: ./.github/workflows/npm-package-worker.yaml
+    with:
+      sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      package: ${{ matrix.package }}
+      batch: ${{ github.run_id }}-${{ github.run_attempt }}
+
+  compatibility:
+    name: npm package compatibility
+    needs: worker
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download worker results
+        uses: actions/download-artifact@v4
         with:
-          node-version: '24'
-      - name: Run fallback suite with Porffor
-        if: steps.worker.outputs.available != 'true'
+          pattern: npm-package-result-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/npm-package-reports
+      - name: Summarize package results
         env:
-          NPM_PACKAGE_CONCURRENCY: '10'
           NPM_PACKAGE_REPORT_DIR: ${{ runner.temp }}/npm-package-reports
-        run: node test/npm-packages.mjs
-      - name: Dispatch package workers
-        if: steps.worker.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NPM_PACKAGE_BATCH: ${{ github.run_id }}-${{ github.run_attempt }}
-          NPM_PACKAGE_CONCURRENCY: '10'
-          NPM_PACKAGE_REPORT_DIR: ${{ runner.temp }}/npm-package-reports
-          NPM_PACKAGE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          NPM_PACKAGE_WORKER_REF: ${{ github.head_ref || github.ref_name }}
-        run: node test/npm-package-dispatch.mjs
+        run: node test/npm-package-summary.mjs
       - name: Upload package logs
         if: always()
         uses: actions/upload-artifact@v4

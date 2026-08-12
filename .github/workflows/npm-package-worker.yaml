@@ -1,6 +1,17 @@
 name: npm package compatibility worker
 
 on:
+  workflow_call:
+    inputs:
+      sha:
+        required: true
+        type: string
+      package:
+        required: true
+        type: string
+      batch:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       sha:
