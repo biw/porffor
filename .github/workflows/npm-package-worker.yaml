@@ -1,0 +1,58 @@
+name: npm package compatibility worker
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        required: true
+        type: string
+      package:
+        required: true
+        type: string
+      batch:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Immutable source commit to test
+        required: true
+        type: string
+      package:
+        description: npm package to test
+        required: true
+        type: string
+      batch:
+        description: Parent compatibility run identifier
+        required: true
+        type: string
+
+run-name: npm package worker ${{ inputs.package }} (${{ inputs.batch }})
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run ${{ inputs.package }} with Porffor
+        env:
+          NPM_PACKAGE_NAME: ${{ inputs.package }}
+          NPM_PACKAGE_REPORT_DIR: ${{ runner.temp }}/npm-package-result
+        run: node test/npm-packages.mjs --packages "$NPM_PACKAGE_NAME"
+      - name: Upload ${{ inputs.package }} result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-result-${{ inputs.batch }}-${{ inputs.package }}
+          path: ${{ runner.temp }}/npm-package-result
+          if-no-files-found: error
+          retention-days: 14

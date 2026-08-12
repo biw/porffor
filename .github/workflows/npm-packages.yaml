@@ -1,0 +1,67 @@
+name: npm package compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-package-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: discover npm packages
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.packages.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: packages
+        run: echo "packages=$(node test/npm-packages.mjs --list --json)" >> "$GITHUB_OUTPUT"
+
+  # POC: GitHub does not register workflow_dispatch targets until they exist
+  # on the default branch. Calling this reusable workflow from the PR branch
+  # proves that every package runs on a separate machine before that merge.
+  worker:
+    name: "npm: ${{ matrix.package }}"
+    needs: discover
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        package: ${{ fromJSON(needs.discover.outputs.packages) }}
+    uses: ./.github/workflows/npm-package-worker.yaml
+    with:
+      sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      package: ${{ matrix.package }}
+      batch: ${{ github.run_id }}-${{ github.run_attempt }}
+
+  compatibility:
+    name: npm package compatibility
+    needs: worker
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download worker results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-package-result-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/npm-package-reports
+      - name: Summarize package results
+        env:
+          NPM_PACKAGE_REPORT_DIR: ${{ runner.temp }}/npm-package-reports
+        run: node test/npm-package-summary.mjs
+      - name: Upload package logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-compatibility-logs
+          path: ${{ runner.temp }}/npm-package-reports
+          if-no-files-found: error
+          retention-days: 14
