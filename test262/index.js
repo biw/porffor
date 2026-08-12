@@ -161,6 +161,7 @@ if (cluster.isPrimary) {
 
   const startTccServer = async () => {
     if (parseOnly) return;
+    if (process.env.PORFFOR_TEST262_NO_TCC === '1') return;
     if (process.argv.includes('--no-tcc-server') || process.env.PORFFOR_TEST262_TCC_SERVER === '0') return;
     if (process.env.PORFFOR_TEST262_TCC_SERVER) return;
 
@@ -899,11 +900,13 @@ if (cluster.isPrimary) {
   // process, so no binary is ever written (writing + first-exec of a fresh
   // binary costs ~250ms on macOS). without tcc, fall back to CC + a temp binary
   let tcc = process.env.PORFFOR_TEST262_TCC ?? process.env.TCC ?? 'tcc';
-  let hasTcc = true;
-  try {
-    tcc = resolveTcc();
-  } catch {
-    hasTcc = false;
+  let hasTcc = process.env.PORFFOR_TEST262_NO_TCC !== '1';
+  if (hasTcc) {
+    try {
+      tcc = resolveTcc();
+    } catch {
+      hasTcc = false;
+    }
   }
   const cc = (process.env.CC ?? 'cc').split(' ');
   const tmpBin = join(os.tmpdir(), `porffor-test262-${process.pid}`);

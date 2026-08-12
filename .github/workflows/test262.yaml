@@ -1,0 +1,196 @@
+name: Test262
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: test262-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test262:
+    name: test262 (shard ${{ matrix.shard }}/100)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 100
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
+    steps:
+      - uses: actions/checkout@v5
+      - name: checkout test262
+        uses: actions/checkout@v5
+        with:
+          repository: tc39/test262
+          ref: 6eec1ac9ee144dafd8f344d73a21f36bfc9f6755
+          path: test262/test262
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: verify C toolchain
+        run: |
+          test "$(uname -s)" = Linux
+          test -x /usr/bin/cc
+          /usr/bin/cc --version
+      - name: select test262 shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: '100'
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import { join, relative } from 'node:path';
+
+          const root = 'test262/test262/test';
+          const files = [];
+          const scan = dir => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const path = join(dir, entry.name);
+              if (entry.isDirectory()) scan(path);
+              else if (entry.name.endsWith('.js') && !entry.name.includes('_FIXTURE'))
+                files.push(relative(root, path).replaceAll('\\', '/'));
+            }
+          };
+
+          const shard = Number(process.env.SHARD) - 1;
+          const shardCount = Number(process.env.SHARD_COUNT);
+          if (!Number.isInteger(shard) || shard < 0 || shard >= shardCount)
+            throw new Error(`invalid shard ${process.env.SHARD}/${process.env.SHARD_COUNT}`);
+
+          scan(root);
+          files.sort();
+          const selected = files.filter((_, index) => index % shardCount === shard);
+          fs.writeFileSync('test262-files.json', JSON.stringify(selected));
+          console.log(`shard ${shard + 1}/${shardCount}: ${selected.length}/${files.length} tests`);
+          EOF
+      - name: run test262
+        env:
+          SHARD: ${{ matrix.shard }}
+          # Exercise the harness's C compiler fallback, never TCC.
+          CC: /usr/bin/cc
+          PORFFOR_TEST262_NO_TCC: '1'
+        run: |
+          set -o pipefail
+          node test262/index.js --threads=4 --files=test262-files.json | tee test262-summary.txt
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const results = JSON.parse(fs.readFileSync('test262/results.json', 'utf8'));
+          const categories = [ 'passes', 'fails', 'runtimeErrors', 'nativeErrors', 'compileErrors', 'timeouts' ];
+          const counts = Object.fromEntries(categories.map(category => [ category, results[category]?.length ?? 0 ]));
+          fs.writeFileSync(`test262-shard-${process.env.SHARD}.json`, JSON.stringify({
+            shard: Number(process.env.SHARD), total: results.total, ...counts
+          }));
+          EOF
+      - name: upload shard result
+        uses: actions/upload-artifact@v6
+        with:
+          name: test262-shard-${{ matrix.shard }}
+          path: test262-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  test262-summary:
+    name: test262 summary
+    needs: test262
+    runs-on: ubuntu-latest
+    steps:
+      - name: download shard results
+        uses: actions/download-artifact@v6
+        with:
+          pattern: test262-shard-*
+          path: test262-results
+          merge-multiple: true
+      - name: verify aggregated test262 result
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import { join } from 'node:path';
+
+          const directory = 'test262-results';
+          const results = fs.readdirSync(directory)
+            .filter(name => name.endsWith('.json'))
+            .map(name => JSON.parse(fs.readFileSync(join(directory, name), 'utf8')));
+          if (results.length !== 100)
+            throw new Error(`expected 100 shard results, got ${results.length}`);
+
+          const categories = [ 'passes', 'fails', 'runtimeErrors', 'nativeErrors', 'compileErrors', 'timeouts' ];
+          const totals = results.reduce(
+            (sum, result) => {
+              if (!Number.isInteger(result.shard) || result.shard < 1 || result.shard > 100)
+                throw new Error(`invalid shard result: ${JSON.stringify(result)}`);
+              if (sum.shards.has(result.shard)) throw new Error(`duplicate shard result: ${result.shard}`);
+              sum.shards.add(result.shard);
+              if (!Number.isInteger(result.total)) throw new Error(`invalid total for shard ${result.shard}`);
+              sum.total += result.total;
+              for (const category of categories) {
+                if (!Number.isInteger(result[category]))
+                  throw new Error(`invalid ${category} count for shard ${result.shard}`);
+                sum[category] += result[category];
+              }
+              return sum;
+            },
+            { shards: new Set(), total: 0, passes: 0, fails: 0, runtimeErrors: 0, nativeErrors: 0, compileErrors: 0, timeouts: 0 }
+          );
+          if (totals.shards.size !== 100) throw new Error('not every shard reported a result');
+          const counted = categories.reduce((sum, category) => sum + totals[category], 0);
+          if (counted !== totals.total)
+            throw new Error(`expected result categories to total ${totals.total}, got ${counted}`);
+          const count = value => value.toLocaleString('en-US');
+          const percentage = value => `${((value / totals.total) * 100).toFixed(2)}%`;
+          const line = `🧪 Total: ${count(totals.total)} | 🤠 Passed: ${count(totals.passes)} | ❌ Failed: ${count(totals.fails)} | 💀 Runtime errors: ${count(totals.runtimeErrors)} | 🏗️ Native errors: ${count(totals.nativeErrors)} | 💥 Compile errors: ${count(totals.compileErrors)} | ⏰ Timeouts: ${count(totals.timeouts)}`;
+          const table = [
+            '| Metric | Count | Percentage |',
+            '|---|---:|---:|',
+            `| 🧪 Total | ${count(totals.total)} | 100.00% |`,
+            `| 🤠 Passed | ${count(totals.passes)} | ${percentage(totals.passes)} |`,
+            `| ❌ Failed | ${count(totals.fails)} | ${percentage(totals.fails)} |`,
+            `| 💀 Runtime errors | ${count(totals.runtimeErrors)} | ${percentage(totals.runtimeErrors)} |`,
+            `| 🏗️ Native errors | ${count(totals.nativeErrors)} | ${percentage(totals.nativeErrors)} |`,
+            `| 💥 Compile errors | ${count(totals.compileErrors)} | ${percentage(totals.compileErrors)} |`,
+            `| ⏰ Timeouts | ${count(totals.timeouts)} | ${percentage(totals.timeouts)} |`
+          ].join('\n');
+          console.log(`Test262: ${line}`);
+          console.log(table);
+          if (totals.total !== 53404) throw new Error(`expected 53404 tests, got ${totals.total}`);
+          // Baseline measured for the pinned suite in CI.
+          if (totals.passes < 4658) throw new Error(`expected at least 4658 passes, got ${totals.passes}`);
+          fs.writeFileSync('test262-summary.json', JSON.stringify({ ...totals, shards: undefined, line, table }));
+          EOF
+      - name: comment test262 result on pull request
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const { table } = JSON.parse(fs.readFileSync('test262-summary.json', 'utf8'));
+          const shortSha = process.env.HEAD_SHA.slice(0, 7);
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}?pr=${process.env.PR_NUMBER}`;
+          const body = [
+            '<!-- porffor-test262-summary -->',
+            '## Test262',
+            '',
+            table,
+            '',
+            `<p align="right"><i>run on <a href="${runUrl}">${shortSha}</a></i></p>`
+          ].join('\n');
+          fs.writeFileSync('test262-comment.json', JSON.stringify({ body }));
+          EOF
+          comments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[] | select(.body | contains("<!-- porffor-test262-summary -->")) | .id')"
+          comment_id="$(printf '%s\n' "$comments" | sed -n '1p')"
+          if test -n "$comment_id"; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" --input test262-comment.json
+            printf '%s\n' "$comments" | sed -n '2,$p' | while read -r duplicate_id; do
+              test -z "$duplicate_id" || gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$duplicate_id"
+            done
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input test262-comment.json
+          fi
