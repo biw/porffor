@@ -25,7 +25,9 @@ jobs:
         id: worker
         env:
           GH_TOKEN: ${{ github.token }}
-          WORKER_REF: ${{ github.event.repository.default_branch }}
+          # Pull requests run against the head branch; github.ref is a
+          # synthetic merge ref and cannot be used for workflow dispatch.
+          WORKER_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           if gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/npm-package-worker.yaml?ref=$WORKER_REF" >/dev/null; then
             echo 'available=true' >> "$GITHUB_OUTPUT"
@@ -35,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Run bootstrap suite with Porffor
+      - name: Run fallback suite with Porffor
         if: steps.worker.outputs.available != 'true'
         env:
           NPM_PACKAGE_CONCURRENCY: '10'
@@ -49,7 +51,7 @@ jobs:
           NPM_PACKAGE_CONCURRENCY: '10'
           NPM_PACKAGE_REPORT_DIR: ${{ runner.temp }}/npm-package-reports
           NPM_PACKAGE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          NPM_PACKAGE_WORKER_REF: ${{ github.event.repository.default_branch }}
+          NPM_PACKAGE_WORKER_REF: ${{ github.head_ref || github.ref_name }}
         run: node test/npm-package-dispatch.mjs
       - name: Upload package logs
         if: always()
