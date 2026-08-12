@@ -15,7 +15,7 @@ concurrency:
 jobs:
   test262:
     name: test262 (shard ${{ matrix.shard }}/10)
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -33,8 +33,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - name: install tcc
-        run: sudo apt-get update && sudo apt-get install -y tcc
+      - name: verify Apple Clang toolchain
+        run: |
+          test "$(uname -s)" = Darwin
+          test -x /usr/bin/cc
+          /usr/bin/cc --version
       - name: select test262 shard
         env:
           SHARD: ${{ matrix.shard }}
@@ -69,9 +72,12 @@ jobs:
       - name: run test262
         env:
           SHARD: ${{ matrix.shard }}
+          # Match the website's Test262 setup: Apple Clang, never TCC.
+          CC: /usr/bin/cc
+          PORFFOR_TEST262_NO_TCC: '1'
         run: |
           set -o pipefail
-          node test262/index.js --threads=4 --no-tcc-server --files=test262-files.json | tee test262-summary.txt
+          node test262/index.js --threads=4 --files=test262-files.json | tee test262-summary.txt
           node --input-type=module <<'EOF'
           import fs from 'node:fs';
           const results = JSON.parse(fs.readFileSync('test262/results.json', 'utf8'));
