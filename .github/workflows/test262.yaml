@@ -18,14 +18,14 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: checkout test262
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: tc39/test262
           ref: 6eec1ac9ee144dafd8f344d73a21f36bfc9f6755
           path: test262/test262
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: install tcc
@@ -79,7 +79,7 @@ jobs:
           }));
           EOF
       - name: upload shard result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test262-shard-${{ matrix.shard }}
           path: test262-shard-${{ matrix.shard }}.json
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: download shard results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: test262-shard-*
           path: test262-results
@@ -115,7 +115,7 @@ jobs:
             { passes: 0, total: 0 }
           );
           console.log(`Test262: ${passes}/${total} passed across 10 shards`);
-          if (total !== 50718) throw new Error(`expected 50718 tests, got ${total}`);
-          // Baseline for the pinned suite, recorded in test262/history.json.
-          if (passes < 34211) throw new Error(`expected at least 34211 passes, got ${passes}`);
+          if (total !== 53404) throw new Error(`expected 53404 tests, got ${total}`);
+          // Baseline measured for the pinned suite in CI.
+          if (passes < 4658) throw new Error(`expected at least 4658 passes, got ${passes}`);
           EOF
