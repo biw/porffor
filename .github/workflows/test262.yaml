@@ -14,14 +14,14 @@ concurrency:
 
 jobs:
   test262:
-    name: test262 (shard ${{ matrix.shard }}/10)
+    name: test262 (shard ${{ matrix.shard }}/100)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 100
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
     steps:
       - uses: actions/checkout@v5
       - name: checkout test262
@@ -41,7 +41,7 @@ jobs:
       - name: select test262 shard
         env:
           SHARD: ${{ matrix.shard }}
-          SHARD_COUNT: '10'
+          SHARD_COUNT: '100'
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs';
@@ -116,13 +116,13 @@ jobs:
           const results = fs.readdirSync(directory)
             .filter(name => name.endsWith('.json'))
             .map(name => JSON.parse(fs.readFileSync(join(directory, name), 'utf8')));
-          if (results.length !== 10)
-            throw new Error(`expected 10 shard results, got ${results.length}`);
+          if (results.length !== 100)
+            throw new Error(`expected 100 shard results, got ${results.length}`);
 
           const categories = [ 'passes', 'fails', 'runtimeErrors', 'nativeErrors', 'compileErrors', 'timeouts' ];
           const totals = results.reduce(
             (sum, result) => {
-              if (!Number.isInteger(result.shard) || result.shard < 1 || result.shard > 10)
+              if (!Number.isInteger(result.shard) || result.shard < 1 || result.shard > 100)
                 throw new Error(`invalid shard result: ${JSON.stringify(result)}`);
               if (sum.shards.has(result.shard)) throw new Error(`duplicate shard result: ${result.shard}`);
               sum.shards.add(result.shard);
@@ -137,7 +137,7 @@ jobs:
             },
             { shards: new Set(), total: 0, passes: 0, fails: 0, runtimeErrors: 0, nativeErrors: 0, compileErrors: 0, timeouts: 0 }
           );
-          if (totals.shards.size !== 10) throw new Error('not every shard reported a result');
+          if (totals.shards.size !== 100) throw new Error('not every shard reported a result');
           const counted = categories.reduce((sum, category) => sum + totals[category], 0);
           if (counted !== totals.total)
             throw new Error(`expected result categories to total ${totals.total}, got ${counted}`);
