@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        # The ten highest-downloaded packages in the weekly npm ranking when
+        # The 50 highest-downloaded packages in the weekly npm ranking when
         # this suite was added. Keep the test program with its package entry.
         include:
           - package: chalk
@@ -34,7 +34,7 @@ jobs:
               const chalk = new Chalk({ level: 1 });
               if (chalk.green('porffor') !== '\u001B[32mporffor\u001B[39m') throw new Error('chalk did not format text');
           - package: commander
-            platform: browser
+            platform: node
             smoke_test: |
               import { Command } from 'commander';
               const command = new Command().option('-d, --debug');
@@ -87,6 +87,220 @@ jobs:
               const linter = new Linter({ configType: 'eslintrc' });
               const messages = linter.verify('const unused = 1;', { rules: { 'no-unused-vars': 'error' } });
               if (messages.length !== 1) throw new Error('eslint did not report an unused variable');
+          - package: react
+            platform: browser
+            smoke_test: |
+              import { createElement } from 'react';
+              const element = createElement('div', { id: 'porffor' }, 'purple');
+              if (element.type !== 'div' || element.props.id !== 'porffor') throw new Error('react did not create an element');
+          - package: axios
+            platform: browser
+            smoke_test: |
+              import axios from 'axios';
+              const client = axios.create({ baseURL: 'https://example.invalid' });
+              if (typeof client.get !== 'function') throw new Error('axios did not create a client');
+          - package: vite
+            platform: node
+            smoke_test: |
+              import { defineConfig } from 'vite';
+              const config = defineConfig({ base: '/porffor/' });
+              if (config.base !== '/porffor/') throw new Error('vite did not define config');
+          - package: express
+            platform: node
+            smoke_test: |
+              import express from 'express';
+              const app = express();
+              app.get('/porffor', (request, response) => response.end('purple'));
+              if (typeof app.listen !== 'function') throw new Error('express did not create an app');
+          - package: prettier
+            platform: browser
+            smoke_test: |
+              import { format } from 'prettier';
+              if (typeof format !== 'function') throw new Error('prettier did not export format');
+          - package: ora
+            platform: node
+            smoke_test: |
+              import ora from 'ora';
+              if (typeof ora !== 'function') throw new Error('ora did not export a spinner factory');
+          - package: sharp
+            platform: node
+            smoke_test: |
+              import sharp from 'sharp';
+              if (typeof sharp !== 'function') throw new Error('sharp did not export an image factory');
+          - package: playwright
+            platform: node
+            smoke_test: |
+              import { chromium } from 'playwright';
+              if (typeof chromium.launch !== 'function') throw new Error('playwright did not export chromium');
+          - package: cors
+            platform: node
+            smoke_test: |
+              import cors from 'cors';
+              if (typeof cors() !== 'function') throw new Error('cors did not create middleware');
+          - package: webpack
+            platform: node
+            smoke_test: |
+              import webpack from 'webpack';
+              if (typeof webpack !== 'function') throw new Error('webpack did not export a compiler factory');
+          - package: dayjs
+            platform: browser
+            smoke_test: |
+              import dayjs from 'dayjs';
+              if (dayjs('2026-01-02').format('YYYY-MM-DD') !== '2026-01-02') throw new Error('dayjs did not format a date');
+          - package: vitest
+            platform: node
+            smoke_test: |
+              import * as vitest from 'vitest';
+              if (typeof vitest.describe !== 'function') throw new Error('vitest did not export describe');
+          - package: jest
+            platform: node
+            smoke_test: |
+              import { getVersion } from 'jest';
+              if (typeof getVersion() !== 'string') throw new Error('jest did not report a version');
+          - package: jsonwebtoken
+            platform: node
+            smoke_test: |
+              import jwt from 'jsonwebtoken';
+              if (jwt.decode('eyJhbGciOiJub25lIn0.eyJwb3JmZm9yIjp0cnVlfQ.')?.porffor !== true) throw new Error('jsonwebtoken did not decode a token');
+          - package: next
+            platform: node
+            smoke_test: |
+              import next from 'next';
+              if (typeof next !== 'function') throw new Error('next did not export an app factory');
+          - package: marked
+            platform: browser
+            smoke_test: |
+              import { marked } from 'marked';
+              if (marked.parse('# Porffor').trim() !== '<h1>Porffor</h1>') throw new Error('marked did not render markdown');
+          - package: hono
+            platform: browser
+            smoke_test: |
+              import { Hono } from 'hono';
+              const app = new Hono();
+              app.get('/porffor', context => context.text('purple'));
+              if (typeof app.fetch !== 'function') throw new Error('hono did not create an app');
+          - package: pino
+            platform: node
+            smoke_test: |
+              import pino from 'pino';
+              const logger = pino({ enabled: false });
+              if (typeof logger.info !== 'function') throw new Error('pino did not create a logger');
+          - package: pg
+            platform: node
+            smoke_test: |
+              import { Client } from 'pg';
+              const client = new Client({ host: '127.0.0.1', port: 1 });
+              if (typeof client.connect !== 'function') throw new Error('pg did not create a client');
+          - package: winston
+            platform: node
+            smoke_test: |
+              import winston from 'winston';
+              const logger = winston.createLogger({ silent: true });
+              if (typeof logger.info !== 'function') throw new Error('winston did not create a logger');
+          - package: highlight.js
+            platform: browser
+            smoke_test: |
+              import hljs from 'highlight.js';
+              if (!hljs.highlight('const porffor = true;', { language: 'javascript' }).value.includes('hljs')) throw new Error('highlight.js did not highlight code');
+          - package: cheerio
+            platform: browser
+            smoke_test: |
+              import { load } from 'cheerio';
+              if (load('<p>Porffor</p>')('p').text() !== 'Porffor') throw new Error('cheerio did not read HTML');
+          - package: joi
+            platform: node
+            smoke_test: |
+              import Joi from 'joi';
+              if (Joi.object({ purple: Joi.boolean().required() }).validate({ purple: true }).error) throw new Error('joi did not validate data');
+          - package: ioredis
+            platform: node
+            smoke_test: |
+              import Redis from 'ioredis';
+              if (typeof Redis !== 'function') throw new Error('ioredis did not export a client constructor');
+          - package: mocha
+            platform: node
+            smoke_test: |
+              import Mocha from 'mocha';
+              const mocha = new Mocha();
+              if (typeof mocha.run !== 'function') throw new Error('mocha did not create a test runner');
+          - package: socket.io
+            platform: node
+            smoke_test: |
+              import { Server } from 'socket.io';
+              if (typeof Server !== 'function') throw new Error('socket.io did not export a server constructor');
+          - package: prisma
+            platform: node
+            smoke_test: |
+              import * as prisma from 'prisma';
+              if (Object.keys(prisma).length === 0) throw new Error('prisma did not export its API');
+          - package: morgan
+            platform: node
+            smoke_test: |
+              import morgan from 'morgan';
+              if (typeof morgan('tiny') !== 'function') throw new Error('morgan did not create middleware');
+          - package: helmet
+            platform: node
+            smoke_test: |
+              import helmet from 'helmet';
+              if (typeof helmet() !== 'function') throw new Error('helmet did not create middleware');
+          - package: puppeteer
+            platform: node
+            smoke_test: |
+              import puppeteer from 'puppeteer';
+              if (typeof puppeteer.launch !== 'function') throw new Error('puppeteer did not export launch');
+          - package: mysql2
+            platform: node
+            smoke_test: |
+              import mysql from 'mysql2';
+              if (typeof mysql.createConnection !== 'function') throw new Error('mysql2 did not export a connection factory');
+          - package: redis
+            platform: node
+            smoke_test: |
+              import { createClient } from 'redis';
+              const client = createClient({ url: 'redis://127.0.0.1:1' });
+              if (typeof client.connect !== 'function') throw new Error('redis did not create a client');
+          - package: bcryptjs
+            platform: browser
+            smoke_test: |
+              import bcrypt from 'bcryptjs';
+              if (!bcrypt.compareSync('porffor', bcrypt.hashSync('porffor', 4))) throw new Error('bcryptjs did not hash a password');
+          - package: drizzle-orm
+            platform: node
+            smoke_test: |
+              import { sql } from 'drizzle-orm';
+              if (typeof sql !== 'function') throw new Error('drizzle-orm did not export sql');
+          - package: cypress
+            platform: node
+            smoke_test: |
+              import cypress from 'cypress';
+              if (typeof cypress.version !== 'string') throw new Error('cypress did not report a version');
+          - package: koa
+            platform: node
+            smoke_test: |
+              import Koa from 'koa';
+              const app = new Koa();
+              if (typeof app.callback !== 'function') throw new Error('koa did not create an app');
+          - package: fastify
+            platform: node
+            smoke_test: |
+              import Fastify from 'fastify';
+              const app = Fastify();
+              if (typeof app.listen !== 'function') throw new Error('fastify did not create an app');
+          - package: mongoose
+            platform: node
+            smoke_test: |
+              import mongoose from 'mongoose';
+              if (typeof mongoose.model !== 'function') throw new Error('mongoose did not export model');
+          - package: bullmq
+            platform: node
+            smoke_test: |
+              import { Queue } from 'bullmq';
+              if (typeof Queue !== 'function') throw new Error('bullmq did not export Queue');
+          - package: knex
+            platform: node
+            smoke_test: |
+              import knex from 'knex';
+              if (typeof knex !== 'function') throw new Error('knex did not export a query builder factory');
 
     steps:
       - uses: actions/checkout@v4
