@@ -6,6 +6,11 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+
+concurrency:
+  group: test262-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   test262:
@@ -67,15 +72,13 @@ jobs:
         run: |
           set -o pipefail
           node test262/index.js --threads=4 --no-tcc-server --files=test262-files.json | tee test262-summary.txt
-          summary="$(sed -nE 's/.*: ([0-9]+)\/([0-9]+) passed.*/\1 \2/p' test262-summary.txt)"
-          test -n "$summary"
-          set -- $summary
-          PASSES="$1" TOTAL="$2" node --input-type=module <<'EOF'
+          node --input-type=module <<'EOF'
           import fs from 'node:fs';
+          const results = JSON.parse(fs.readFileSync('test262/results.json', 'utf8'));
+          const categories = [ 'passes', 'fails', 'runtimeErrors', 'nativeErrors', 'compileErrors', 'timeouts' ];
+          const counts = Object.fromEntries(categories.map(category => [ category, results[category]?.length ?? 0 ]));
           fs.writeFileSync(`test262-shard-${process.env.SHARD}.json`, JSON.stringify({
-            shard: Number(process.env.SHARD),
-            passes: Number(process.env.PASSES),
-            total: Number(process.env.TOTAL)
+            shard: Number(process.env.SHARD), total: results.total, ...counts
           }));
           EOF
       - name: upload shard result
@@ -110,12 +113,58 @@ jobs:
           if (results.length !== 10)
             throw new Error(`expected 10 shard results, got ${results.length}`);
 
-          const { passes, total } = results.reduce(
-            (sum, result) => ({ passes: sum.passes + result.passes, total: sum.total + result.total }),
-            { passes: 0, total: 0 }
+          const categories = [ 'passes', 'fails', 'runtimeErrors', 'nativeErrors', 'compileErrors', 'timeouts' ];
+          const totals = results.reduce(
+            (sum, result) => {
+              if (!Number.isInteger(result.shard) || result.shard < 1 || result.shard > 10)
+                throw new Error(`invalid shard result: ${JSON.stringify(result)}`);
+              if (sum.shards.has(result.shard)) throw new Error(`duplicate shard result: ${result.shard}`);
+              sum.shards.add(result.shard);
+              if (!Number.isInteger(result.total)) throw new Error(`invalid total for shard ${result.shard}`);
+              sum.total += result.total;
+              for (const category of categories) {
+                if (!Number.isInteger(result[category]))
+                  throw new Error(`invalid ${category} count for shard ${result.shard}`);
+                sum[category] += result[category];
+              }
+              return sum;
+            },
+            { shards: new Set(), total: 0, passes: 0, fails: 0, runtimeErrors: 0, nativeErrors: 0, compileErrors: 0, timeouts: 0 }
           );
-          console.log(`Test262: ${passes}/${total} passed across 10 shards`);
-          if (total !== 53404) throw new Error(`expected 53404 tests, got ${total}`);
+          if (totals.shards.size !== 10) throw new Error('not every shard reported a result');
+          const line = `🧪 ${totals.total} | 🤠 ${totals.passes} | ❌ ${totals.fails} | 💀 ${totals.runtimeErrors} | 🏗️ ${totals.nativeErrors} | 💥 ${totals.compileErrors} | ⏰ ${totals.timeouts}`;
+          console.log(`Test262: ${line}`);
+          if (totals.total !== 53404) throw new Error(`expected 53404 tests, got ${totals.total}`);
           // Baseline measured for the pinned suite in CI.
-          if (passes < 4658) throw new Error(`expected at least 4658 passes, got ${passes}`);
+          if (totals.passes < 4658) throw new Error(`expected at least 4658 passes, got ${totals.passes}`);
+          fs.writeFileSync('test262-summary.json', JSON.stringify({ ...totals, shards: undefined, line }));
           EOF
+      - name: comment test262 result on pull request
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const { line } = JSON.parse(fs.readFileSync('test262-summary.json', 'utf8'));
+          const body = [
+            '<!-- porffor-test262-summary -->',
+            '## Test262',
+            '',
+            '```',
+            line,
+            '```'
+          ].join('\n');
+          fs.writeFileSync('test262-comment.json', JSON.stringify({ body }));
+          EOF
+          comments="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[] | select(.body | contains("<!-- porffor-test262-summary -->")) | .id')"
+          comment_id="$(printf '%s\n' "$comments" | sed -n '1p')"
+          if test -n "$comment_id"; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" --input test262-comment.json
+            printf '%s\n' "$comments" | sed -n '2,$p' | while read -r duplicate_id; do
+              test -z "$duplicate_id" || gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$duplicate_id"
+            done
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input test262-comment.json
+          fi
