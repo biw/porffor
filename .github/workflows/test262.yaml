@@ -167,15 +167,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs';
           const { table } = JSON.parse(fs.readFileSync('test262-summary.json', 'utf8'));
+          const shortSha = process.env.HEAD_SHA.slice(0, 7);
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}?pr=${process.env.PR_NUMBER}`;
           const body = [
             '<!-- porffor-test262-summary -->',
             '## Test262',
             '',
-            table
+            table,
+            '',
+            `<p align="right"><i>run on <a href="${runUrl}">${shortSha}</a></i></p>`
           ].join('\n');
           fs.writeFileSync('test262-comment.json', JSON.stringify({ body }));
           EOF
