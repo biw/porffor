@@ -1,0 +1,131 @@
+name: npm package compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-package-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: "npm: ${{ matrix.package }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        # The ten highest-downloaded packages in the weekly npm ranking when
+        # this suite was added. Keep the test program with its package entry.
+        include:
+          - package: chalk
+            platform: browser
+            smoke_test: |
+              import { Chalk } from 'chalk';
+              const chalk = new Chalk({ level: 1 });
+              if (chalk.green('porffor') !== '\u001B[32mporffor\u001B[39m') throw new Error('chalk did not format text');
+          - package: commander
+            platform: browser
+            smoke_test: |
+              import { Command } from 'commander';
+              const command = new Command().option('-d, --debug');
+              command.exitOverride();
+              command.parse(['node', 'smoke-test', '--debug']);
+              if (command.opts().debug !== true) throw new Error('commander did not parse an option');
+          - package: ajv
+            platform: browser
+            smoke_test: |
+              import Ajv from 'ajv';
+              const validate = new Ajv().compile({ type: 'object', properties: { count: { type: 'number' } }, required: ['count'] });
+              if (!validate({ count: 1 }) || validate({ count: '1' })) throw new Error('ajv did not validate the schema');
+          - package: uuid
+            platform: browser
+            smoke_test: |
+              import { v4, validate, version } from 'uuid';
+              const id = v4();
+              if (!validate(id) || version(id) !== 4) throw new Error('uuid did not create a version 4 UUID');
+          - package: typescript
+            platform: node
+            smoke_test: |
+              import ts from 'typescript';
+              const output = ts.transpile('const answer: number = 42;', { target: ts.ScriptTarget.ES2022 });
+              if (!output.includes('42')) throw new Error('typescript did not transpile source');
+          - package: zod
+            platform: browser
+            smoke_test: |
+              import { z } from 'zod';
+              const user = z.object({ name: z.string(), age: z.number().int() });
+              if (user.parse({ name: 'Porffor', age: 1 }).name !== 'Porffor') throw new Error('zod did not parse data');
+          - package: nanoid
+            platform: browser
+            smoke_test: |
+              import { nanoid } from 'nanoid';
+              if (nanoid(16).length !== 16) throw new Error('nanoid returned an unexpected length');
+          - package: lodash
+            platform: browser
+            smoke_test: |
+              import _ from 'lodash';
+              if (_.sum([1, 2, 3]) !== 6) throw new Error('lodash did not sum values');
+          - package: dotenv
+            platform: node
+            smoke_test: |
+              import { parse } from 'dotenv';
+              if (parse('PORFFOR=purple\n').PORFFOR !== 'purple') throw new Error('dotenv did not parse an environment file');
+          - package: eslint
+            platform: node
+            smoke_test: |
+              import { Linter } from 'eslint';
+              const linter = new Linter({ configType: 'eslintrc' });
+              const messages = linter.verify('const unused = 1;', { rules: { 'no-unused-vars': 'error' } });
+              if (messages.length !== 1) throw new Error('eslint did not report an unused variable');
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install ${{ matrix.package }} and bundler
+        env:
+          NPM_CONFIG_AUDIT: 'false'
+          NPM_CONFIG_FUND: 'false'
+        run: |
+          npm install \
+            --prefix "$RUNNER_TEMP/npm-package-test" \
+            --ignore-scripts \
+            --no-package-lock \
+            --no-save \
+            "${{ matrix.package }}" esbuild
+      - name: Bundle ${{ matrix.package }} smoke test
+        env:
+          ESBUILD_PLATFORM: ${{ matrix.platform }}
+          SMOKE_TEST: ${{ matrix.smoke_test }}
+        run: |
+          workdir="$RUNNER_TEMP/npm-package-test"
+          cd "$workdir"
+          node --input-type=module <<'EOF'
+          import esbuild from 'esbuild';
+
+          await esbuild.build({
+            stdin: {
+              contents: process.env.SMOKE_TEST,
+              resolveDir: process.cwd(),
+              sourcefile: 'smoke-test.mjs'
+            },
+            bundle: true,
+            format: 'iife',
+            outfile: 'smoke-test.js',
+            platform: process.env.ESBUILD_PLATFORM,
+            target: 'esnext'
+          });
+          EOF
+      - name: Run ${{ matrix.package }} with Porffor
+        run: ./porf "$RUNNER_TEMP/npm-package-test/smoke-test.js"
