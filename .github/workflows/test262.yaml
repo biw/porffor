@@ -9,8 +9,14 @@ permissions:
 
 jobs:
   test262:
+    name: test262 (shard ${{ matrix.shard }}/10)
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
       - name: checkout test262
@@ -24,11 +30,92 @@ jobs:
           node-version: '24'
       - name: install tcc
         run: sudo apt-get update && sudo apt-get install -y tcc
+      - name: select test262 shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: '10'
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import { join, relative } from 'node:path';
+
+          const root = 'test262/test262/test';
+          const files = [];
+          const scan = dir => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const path = join(dir, entry.name);
+              if (entry.isDirectory()) scan(path);
+              else if (entry.name.endsWith('.js') && !entry.name.includes('_FIXTURE'))
+                files.push(relative(root, path).replaceAll('\\', '/'));
+            }
+          };
+
+          const shard = Number(process.env.SHARD) - 1;
+          const shardCount = Number(process.env.SHARD_COUNT);
+          if (!Number.isInteger(shard) || shard < 0 || shard >= shardCount)
+            throw new Error(`invalid shard ${process.env.SHARD}/${process.env.SHARD_COUNT}`);
+
+          scan(root);
+          files.sort();
+          const selected = files.filter((_, index) => index % shardCount === shard);
+          fs.writeFileSync('test262-files.json', JSON.stringify(selected));
+          console.log(`shard ${shard + 1}/${shardCount}: ${selected.length}/${files.length} tests`);
+          EOF
       - name: run test262
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          node test262/index.js --threads=4 --no-tcc-server | tee test262-summary.txt
-          passes="$(sed -nE 's/.*: ([0-9]+)\/[0-9]+ passed.*/\1/p' test262-summary.txt)"
-          test -n "$passes"
-          # Baseline for the pinned suite, recorded in test262/history.json.
-          test "$passes" -ge 34211
+          node test262/index.js --threads=4 --no-tcc-server --files=test262-files.json | tee test262-summary.txt
+          summary="$(sed -nE 's/.*: ([0-9]+)\/([0-9]+) passed.*/\1 \2/p' test262-summary.txt)"
+          test -n "$summary"
+          set -- $summary
+          PASSES="$1" TOTAL="$2" node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          fs.writeFileSync(`test262-shard-${process.env.SHARD}.json`, JSON.stringify({
+            shard: Number(process.env.SHARD),
+            passes: Number(process.env.PASSES),
+            total: Number(process.env.TOTAL)
+          }));
+          EOF
+      - name: upload shard result
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-shard-${{ matrix.shard }}
+          path: test262-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  test262-summary:
+    name: test262 summary
+    needs: test262
+    runs-on: ubuntu-latest
+    steps:
+      - name: download shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test262-shard-*
+          path: test262-results
+          merge-multiple: true
+      - name: verify aggregated test262 result
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import { join } from 'node:path';
+
+          const directory = 'test262-results';
+          const results = fs.readdirSync(directory)
+            .filter(name => name.endsWith('.json'))
+            .map(name => JSON.parse(fs.readFileSync(join(directory, name), 'utf8')));
+          if (results.length !== 10)
+            throw new Error(`expected 10 shard results, got ${results.length}`);
+
+          const { passes, total } = results.reduce(
+            (sum, result) => ({ passes: sum.passes + result.passes, total: sum.total + result.total }),
+            { passes: 0, total: 0 }
+          );
+          console.log(`Test262: ${passes}/${total} passed across 10 shards`);
+          if (total !== 50718) throw new Error(`expected 50718 tests, got ${total}`);
+          // Baseline for the pinned suite, recorded in test262/history.json.
+          if (passes < 34211) throw new Error(`expected at least 34211 passes, got ${passes}`);
+          EOF
