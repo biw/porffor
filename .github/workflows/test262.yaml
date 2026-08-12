@@ -132,7 +132,8 @@ jobs:
             { shards: new Set(), total: 0, passes: 0, fails: 0, runtimeErrors: 0, nativeErrors: 0, compileErrors: 0, timeouts: 0 }
           );
           if (totals.shards.size !== 10) throw new Error('not every shard reported a result');
-          const line = `🧪 ${totals.total} | 🤠 ${totals.passes} | ❌ ${totals.fails} | 💀 ${totals.runtimeErrors} | 🏗️ ${totals.nativeErrors} | 💥 ${totals.compileErrors} | ⏰ ${totals.timeouts}`;
+          const count = value => value.toLocaleString('en-US');
+          const line = `🧪 Total: ${count(totals.total)} | 🤠 Passed: ${count(totals.passes)} | ❌ Failed: ${count(totals.fails)} | 💀 Runtime errors: ${count(totals.runtimeErrors)} | 🏗️ Native errors: ${count(totals.nativeErrors)} | 💥 Compile errors: ${count(totals.compileErrors)} | ⏰ Timeouts: ${count(totals.timeouts)}`;
           console.log(`Test262: ${line}`);
           if (totals.total !== 53404) throw new Error(`expected 53404 tests, got ${totals.total}`);
           // Baseline measured for the pinned suite in CI.
