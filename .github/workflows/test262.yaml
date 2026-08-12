@@ -1,0 +1,36 @@
+name: Test262
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  test262:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: checkout test262
+        uses: actions/checkout@v4
+        with:
+          repository: tc39/test262
+          ref: 6eec1ac9ee144dafd8f344d73a21f36bfc9f6755
+          path: test262/test262
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: install tcc
+        run: sudo apt-get update && sudo apt-get install -y tcc
+      - name: run test262
+        env:
+          RESULT_ONLY: '1'
+        run: |
+          set -o pipefail
+          node test262/index.js --threads=4 --no-tcc-server | tee test262-summary.txt
+          passes="$(sed -nE 's/.* pass ([0-9]+).*/\1/p' test262-summary.txt)"
+          test -n "$passes"
+          # Baseline for the pinned suite, recorded in test262/history.json.
+          test "$passes" -ge 34211
